@@ -26,25 +26,83 @@ export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<'moderator' | 'admin'>('moderator');
+  const [userName, setUserName] = useState<string>('');
+
+  // Проверка сохранённой сессии при загрузке
+  useEffect(() => {
+    const token = localStorage.getItem('access_token');
+    const role = localStorage.getItem('user_role') as 'moderator' | 'admin' | null;
+    const name = localStorage.getItem('user_name') || '';
+    
+    if (token && role) {
+      // Проверяем, что токен ещё действителен (упрощённая проверка)
+      setIsLoggedIn(true);
+      setUserRole(role);
+      setUserName(name);
+      setCurrentScreen('announcements');
+    }
+  }, []);
 
   const handleLogin = async (username: string, password: string) => {
     try {
-      await api.login({ username, password });
-      const profile = await api.getProfile();
-      setUserRole(profile.role as 'moderator' | 'admin');
+      // 1. Авторизация и получение токена + данных пользователя
+      const authResponse = await api.login({ username, password });
+      
+      if (!authResponse.access_token) {
+        throw new Error('Сервер не вернул токен доступа');
+      }
+
+      // 2. Сохраняем токен и данные пользователя
+      localStorage.setItem('access_token', authResponse.access_token);
+      
+      // Если сервер вернул данные пользователя в ответе на /auth/login
+      if (authResponse.user) {
+        localStorage.setItem('user_role', authResponse.user.role);
+        localStorage.setItem('user_name', authResponse.user.name);
+        setUserRole(authResponse.user.role as 'moderator' | 'admin');
+        setUserName(authResponse.user.name);
+      } else {
+        // Иначе запрашиваем профиль отдельно
+        const profile = await api.getProfile();
+        localStorage.setItem('user_role', profile.role);
+        localStorage.setItem('user_name', profile.name);
+        setUserRole(profile.role as 'moderator' | 'admin');
+        setUserName(profile.name);
+      }
+      
+      // 3. Устанавливаем состояние авторизации
       setIsLoggedIn(true);
       setCurrentScreen('announcements');
+      
     } catch (error) {
+      // Очищаем данные при ошибке
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('user_role');
+      localStorage.removeItem('user_name');
+      
       alert('Ошибка входа: ' + (error as Error).message);
     }
   };
 
   const handleLogout = () => {
+    // Очищаем данные сессии
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('user_role');
+    localStorage.removeItem('user_name');
+    
     setIsLoggedIn(false);
     setCurrentScreen('login');
     setSelectedAnnouncementId(null);
     setUserRole('moderator');
+    setUserName('');
   };
+
+  // 🔒 Защита: если модератор как-то оказался на экране 'users' — перенаправляем
+  useEffect(() => {
+    if (isLoggedIn && userRole === 'moderator' && currentScreen === 'users') {
+      setCurrentScreen('announcements');
+    }
+  }, [isLoggedIn, userRole, currentScreen]);
 
   if (!isLoggedIn) {
     return <LoginScreen onLogin={handleLogin} />;
@@ -57,7 +115,7 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-6">
-              <h1 className="text-blue-600">Система верификации</h1>
+              <h1 className="text-blue-600 font-bold text-xl">Система верификации</h1>
               <div className="flex gap-4">
                 <button
                   onClick={() => {
@@ -66,7 +124,7 @@ export default function App() {
                   }}
                   className={`px-3 py-1 ${
                     currentScreen === 'announcements'
-                      ? 'text-blue-600 border-b-2 border-blue-600'
+                      ? 'text-blue-600 border-b-2 border-blue-600 font-medium'
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
@@ -79,7 +137,7 @@ export default function App() {
                   }}
                   className={`px-3 py-1 ${
                     currentScreen === 'statistics'
-                      ? 'text-blue-600 border-b-2 border-blue-600'
+                      ? 'text-blue-600 border-b-2 border-blue-600 font-medium'
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
@@ -92,12 +150,13 @@ export default function App() {
                   }}
                   className={`px-3 py-1 ${
                     currentScreen === 'printReport'
-                      ? 'text-blue-600 border-b-2 border-blue-600'
+                      ? 'text-blue-600 border-b-2 border-blue-600 font-medium'
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
-                  Отчеты
+                  Отчёты
                 </button>
+                {/* 🔒 Вкладка "Пользователи" ТОЛЬКО для админа */}
                 {userRole === 'admin' && (
                   <button
                     onClick={() => {
@@ -106,7 +165,7 @@ export default function App() {
                     }}
                     className={`px-3 py-1 ${
                       currentScreen === 'users'
-                        ? 'text-blue-600 border-b-2 border-blue-600'
+                        ? 'text-blue-600 border-b-2 border-blue-600 font-medium'
                         : 'text-gray-600 hover:text-gray-900'
                     }`}
                   >
@@ -120,7 +179,7 @@ export default function App() {
                   }}
                   className={`px-3 py-1 ${
                     currentScreen === 'profile'
-                      ? 'text-blue-600 border-b-2 border-blue-600'
+                      ? 'text-blue-600 border-b-2 border-blue-600 font-medium'
                       : 'text-gray-600 hover:text-gray-900'
                   }`}
                 >
@@ -128,12 +187,24 @@ export default function App() {
                 </button>
               </div>
             </div>
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 text-gray-600 hover:text-gray-900"
-            >
-              Выход
-            </button>
+            <div className="flex items-center gap-4">
+              <div className="text-right">
+                <div className="text-sm font-medium text-gray-900">{userName}</div>
+                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                  userRole === 'admin'
+                    ? 'bg-red-100 text-red-700'
+                    : 'bg-blue-100 text-blue-700'
+                }`}>
+                  {userRole === 'admin' ? 'Администратор' : 'Модератор'}
+                </span>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"
+              >
+                Выход
+              </button>
+            </div>
           </div>
         </div>
       </nav>
@@ -156,7 +227,10 @@ export default function App() {
         {currentScreen === 'editAI' && selectedAnnouncementId && (
           <EditAIDecisionScreen 
             announcementId={selectedAnnouncementId}
-            onBack={() => setCurrentScreen('announcements')} 
+            onBack={() => {
+              setSelectedAnnouncementId(null);
+              setCurrentScreen('announcements');
+            }} 
           />
         )}
         {currentScreen === 'addComment' && selectedAnnouncementId && (
@@ -172,12 +246,21 @@ export default function App() {
               setSelectedAnnouncementId(id);
               setCurrentScreen('addComment');
             }}
-            onBack={() => setCurrentScreen('announcements')}
+            onBack={() => {
+              setSelectedAnnouncementId(null);
+              setCurrentScreen('announcements');
+            }}
           />
         )}
         {currentScreen === 'statistics' && <StatisticsScreen />}
         {currentScreen === 'printReport' && <PrintReportScreen />}
+        {/* 🔒 Экран управления пользователями ДОСТУПЕН ТОЛЬКО АДМИНУ */}
         {currentScreen === 'users' && userRole === 'admin' && <UserManagementScreen />}
+        {currentScreen === 'users' && userRole === 'moderator' && (
+          <div className="text-center py-12 text-gray-500">
+            У вас нет прав для доступа к управлению пользователями
+          </div>
+        )}
       </div>
     </div>
   );

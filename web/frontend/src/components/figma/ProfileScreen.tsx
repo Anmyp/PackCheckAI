@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Label } from '../ui/label';
-import { api } from '../../lib/api'; // ← импорт API
+import { api } from '../../lib/api';
 
 interface ProfileData {
   name: string;
@@ -26,25 +26,27 @@ export function ProfileScreen() {
   useEffect(() => {
     const loadProfile = async () => {
       try {
-        // Предполагается, что у вас есть эндпоинт /profile
-        const response = await fetch('http://localhost:8000/profile', {
-          credentials: 'include' // если используется аутентификация через cookies
-        });
+        // ✅ ИСПОЛЬЗУЕМ api.getProfile() вместо прямого fetch
+        const data = await api.getProfile();
         
-        if (response.ok) {
-          const data = await response.json();
-          setProfile(data);
-          setOriginalProfile(data);
-        } else {
-          throw new Error('Не удалось загрузить профиль');
-        }
+        setProfile({
+          name: data.name || 'Имя не указано',
+          email: data.email || 'email@example.com',
+          role: data.role === 'admin' ? 'Администратор' : 'Модератор',
+        });
+        setOriginalProfile({
+          name: data.name || 'Имя не указано',
+          email: data.email || 'email@example.com',
+          role: data.role === 'admin' ? 'Администратор' : 'Модератор',
+        });
       } catch (err) {
         console.error('Ошибка загрузки профиля:', err);
         setError('Не удалось загрузить данные профиля');
-        // Устанавливаем демо-данные для работы
+        
+        // Демо-данные только для отладки
         const demoData = {
-          name: 'Иван Иванов',
-          email: 'ivan@example.com',
+          name: 'Демо пользователь',
+          email: 'demo@example.com',
           role: 'Модератор',
         };
         setProfile(demoData);
@@ -64,29 +66,29 @@ export function ProfileScreen() {
     setError(null);
     
     try {
-      // Предполагается эндпоинт для обновления профиля
-      const response = await fetch('http://localhost:8000/profile', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          name: profile.name,
-          email: profile.email,
-          // роль обычно не редактируется
-        }),
+      // ✅ ИСПОЛЬЗУЕМ api для обновления профиля
+      const updatedProfile = await api.updateProfile({
+        name: profile.name,
+        email: profile.email,
       });
-
-      if (response.ok) {
-        const updatedProfile = await response.json();
-        setProfile(updatedProfile);
-        setOriginalProfile(updatedProfile);
-        setIsEditing(false);
-      } else {
-        throw new Error('Не удалось сохранить изменения');
-      }
+      
+      setProfile({
+        name: updatedProfile.name,
+        email: updatedProfile.email,
+        role: updatedProfile.role === 'admin' ? 'Администратор' : 'Модератор',
+      });
+      setOriginalProfile({
+        name: updatedProfile.name,
+        email: updatedProfile.email,
+        role: updatedProfile.role === 'admin' ? 'Администратор' : 'Модератор',
+      });
+      
+      setIsEditing(false);
+      alert('✅ Профиль успешно обновлён');
     } catch (err) {
       console.error('Ошибка сохранения профиля:', err);
-      setError('Не удалось сохранить изменения');
+      setError('Не удалось сохранить изменения: ' + (err as Error).message);
+      alert('❌ Ошибка сохранения профиля');
     } finally {
       setSaving(false);
     }
@@ -100,12 +102,20 @@ export function ProfileScreen() {
   };
 
   if (loading) {
-    return <div className="text-center py-8">Загрузка профиля...</div>;
+    return (
+      <div className="max-w-2xl">
+        <h2 className="mb-6">Личные данные</h2>
+        <div className="bg-white border border-gray-300 rounded-lg p-6 text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <div className="text-gray-600">Загрузка профиля...</div>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="max-w-2xl">
-      <h2 className="mb-6">Личные данные</h2>
+      <h2 className="text-2xl font-bold mb-6">Личные данные</h2>
 
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">
@@ -113,68 +123,81 @@ export function ProfileScreen() {
         </div>
       )}
 
-      <div className="bg-white border border-gray-300 rounded-lg p-6">
+      <div className="bg-white border border-gray-300 rounded-xl shadow-sm p-6">
         <div className="space-y-6">
           <div className="space-y-2">
-            <Label htmlFor="name">Имя</Label>
+            <Label htmlFor="name" className="text-sm font-medium text-gray-700">
+              Полное имя
+            </Label>
             <Input
               id="name"
               value={profile.name}
               onChange={(e) => setProfile({ ...profile, name: e.target.value })}
               disabled={!isEditing || saving}
-              className="border-gray-300"
+              className={`mt-1 ${isEditing ? 'border-blue-300 focus:border-blue-500 focus:ring-blue-500' : 'border-gray-300 bg-gray-50'}`}
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="email" className="text-sm font-medium text-gray-700">
+              Email
+            </Label>
             <Input
               id="email"
               type="email"
               value={profile.email}
               onChange={(e) => setProfile({ ...profile, email: e.target.value })}
               disabled={!isEditing || saving}
-              className="border-gray-300"
+              className={`mt-1 ${isEditing ? 'border-blue-300 focus:border-blue-500 focus:ring-blue-500' : 'border-gray-300 bg-gray-50'}`}
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="role">Роль</Label>
+            <Label htmlFor="role" className="text-sm font-medium text-gray-700">
+              Роль в системе
+            </Label>
             <Input
               id="role"
               value={profile.role}
               disabled
-              className="border-gray-300 bg-gray-50"
+              className="mt-1 border-gray-300 bg-gray-50 text-gray-600 font-medium"
             />
           </div>
 
-          <div className="flex gap-3 pt-4">
+          <div className="pt-4 border-t border-gray-200">
             {!isEditing ? (
               <Button
                 onClick={() => setIsEditing(true)}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2"
                 disabled={saving}
               >
-                Редактировать
+                Редактировать профиль
               </Button>
             ) : (
-              <>
+              <div className="flex flex-col sm:flex-row gap-3">
                 <Button
                   onClick={handleSave}
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 flex-1"
                   disabled={saving}
                 >
-                  {saving ? 'Сохранение...' : 'Сохранить'}
+                  {saving ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
+                      Сохранение...
+                    </>
+                  ) : (
+                    'Сохранить изменения'
+                  )}
                 </Button>
                 <Button
                   onClick={handleCancel}
                   variant="outline"
-                  className="border-gray-300"
+                  className="border-gray-300 text-gray-700 hover:bg-gray-50 px-4 py-2 flex-1"
                   disabled={saving}
                 >
-                  Отмена
+                  Отменить
                 </Button>
-              </>
+              </div>
             )}
           </div>
         </div>
