@@ -22,11 +22,9 @@ export function ProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Загрузка профиля при монтировании
   useEffect(() => {
     const loadProfile = async () => {
       try {
-        // ✅ ИСПОЛЬЗУЕМ api.getProfile() вместо прямого fetch
         const data = await api.getProfile();
         
         setProfile({
@@ -43,7 +41,6 @@ export function ProfileScreen() {
         console.error('Ошибка загрузки профиля:', err);
         setError('Не удалось загрузить данные профиля');
         
-        // Демо-данные только для отладки
         const demoData = {
           name: 'Демо пользователь',
           email: 'demo@example.com',
@@ -61,15 +58,22 @@ export function ProfileScreen() {
 
   const handleSave = async () => {
     if (!originalProfile) return;
+
+    const trimmedName = profile.name.trim();
+    const trimmedEmail = profile.email.trim();
+
+    if (!trimmedName || !trimmedEmail) {
+      setError('Имя и email не могут быть пустыми');
+      return;
+    }
     
     setSaving(true);
     setError(null);
     
     try {
-      // ✅ ИСПОЛЬЗУЕМ api для обновления профиля
       const updatedProfile = await api.updateProfile({
-        name: profile.name,
-        email: profile.email,
+        name: trimmedName,
+        email: trimmedEmail,
       });
       
       setProfile({
@@ -134,6 +138,7 @@ export function ProfileScreen() {
               value={profile.name}
               onChange={(e) => setProfile({ ...profile, name: e.target.value })}
               disabled={!isEditing || saving}
+              required
               className={`mt-1 ${isEditing ? 'border-blue-300 focus:border-blue-500 focus:ring-blue-500' : 'border-gray-300 bg-gray-50'}`}
             />
           </div>
@@ -148,6 +153,7 @@ export function ProfileScreen() {
               value={profile.email}
               onChange={(e) => setProfile({ ...profile, email: e.target.value })}
               disabled={!isEditing || saving}
+              required
               className={`mt-1 ${isEditing ? 'border-blue-300 focus:border-blue-500 focus:ring-blue-500' : 'border-gray-300 bg-gray-50'}`}
             />
           </div>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Button } from '../ui/button';
 import { ArrowLeft, Plus } from 'lucide-react';
-import { api } from '../../lib/api'; // ← импорт API
+import { api } from '../../lib/api'; 
 
 interface Comment {
   id: string;
@@ -11,9 +11,9 @@ interface Comment {
 }
 
 interface ViewCommentsScreenProps {
-  onAddComment: (announcementId: string) => void; // ← передаём ID объявления
+  onAddComment: (announcementId: string) => void; 
   onBack: () => void;
-  announcementId: string; // ← добавлен обязательный пропс
+  announcementId: string; 
 }
 
 export function ViewCommentsScreen({ onAddComment, onBack, announcementId }: ViewCommentsScreenProps) {
@@ -31,7 +31,6 @@ export function ViewCommentsScreen({ onAddComment, onBack, announcementId }: Vie
       console.error('Ошибка загрузки комментариев:', err);
       setError('Не удалось загрузить комментарии');
       
-      // Демо-данные для работы
       setComments([
         {
           id: '1',

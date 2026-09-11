@@ -3,11 +3,11 @@ import { Button } from '../ui/button';
 import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { ArrowLeft } from 'lucide-react';
-import { api } from '../../lib/api'; // ← импорт API
+import { api } from '../../lib/api'; 
 
 interface AddCommentScreenProps {
   onBack: () => void;
-  announcementId: string; // ← добавлен обязательный пропс
+  announcementId: string;
 }
 
 export function AddCommentScreen({ onBack, announcementId }: AddCommentScreenProps) {

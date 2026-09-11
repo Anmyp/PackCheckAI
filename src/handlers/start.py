@@ -8,7 +8,6 @@ router = Router()
 
 @router.message(Command("start"))
 async def cmd_start(message: Message):
-    # Проверяем/создаём продавца при первом запуске
     user_check_query = "SELECT id FROM users WHERE telegram_id = $1 AND role_id = 1"
     user_row = await db.fetchrow(user_check_query, message.from_user.id)
     
@@ -34,7 +33,6 @@ async def cmd_start(message: Message):
 
 @router.message(lambda msg: msg.text == "👤 Профиль")
 async def cmd_profile(message: Message):
-    # Получаем данные продавца
     query = """
         SELECT 
             u.full_name,

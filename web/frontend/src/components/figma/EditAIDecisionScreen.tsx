@@ -11,7 +11,7 @@ interface EditAIDecisionScreenProps {
 }
 
 export function EditAIDecisionScreen({ onBack, announcementId }: EditAIDecisionScreenProps) {
-  const [status, setStatus] = useState<'normal' | 'damaged' | 'review'>('damaged');
+  const [status, setStatus] = useState<'normal' | 'damaged'>('damaged');
   const [comment, setComment] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [announcementData, setAnnouncementData] = useState<{
@@ -27,11 +27,10 @@ export function EditAIDecisionScreen({ onBack, announcementId }: EditAIDecisionS
       setLoading(true);
       setError(null);
       try {
-        // ✅ ИСПОЛЬЗУЕМ ЕДИНЫЙ МЕТОД API (как в списке объявлений)
         const data = await api.getAnnouncement(announcementId);
         
         setAnnouncementData({
-          photo_url: data.photo_url,  // ← УЖЕ ПОЛНЫЙ URL: http://localhost:8000/photos/...
+          photo_url: data.photo_url,  
           current_status: data.status,
           seller_name: data.seller_name
         });
@@ -39,7 +38,6 @@ export function EditAIDecisionScreen({ onBack, announcementId }: EditAIDecisionS
         console.error('Ошибка загрузки данных объявления:', err);
         setError('Не удалось загрузить данные объявления');
         
-        // Автоматический выход при 401
         if ((err as Error).message.includes('401') || (err as Error).message.includes('Unauthorized')) {
           localStorage.removeItem('access_token');
           localStorage.removeItem('user_role');
@@ -62,6 +60,23 @@ export function EditAIDecisionScreen({ onBack, announcementId }: EditAIDecisionS
     } catch (error) {
       console.error('Ошибка сохранения решения:', error);
       alert('Не удалось сохранить изменения: ' + (error as Error).message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm('Вы уверены, что хотите удалить это объявление? Это действие нельзя отменить.')) {
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await api.deleteAnnouncement(announcementId);
+      onBack();
+    } catch (error) {
+      console.error('Ошибка удаления объявления:', error);
+      alert('Не удалось удалить объявление: ' + (error as Error).message);
     } finally {
       setIsSaving(false);
     }
@@ -100,13 +115,25 @@ export function EditAIDecisionScreen({ onBack, announcementId }: EditAIDecisionS
         Назад к списку
       </button>
       
-      <div className="flex justify-between items-start mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">Редактирование решения ИИ</h2>
-        {announcementData?.seller_name && (
-          <div className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-            Продавец: {announcementData.seller_name}
-          </div>
-        )}
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-6">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Редактирование решения ИИ</h2>
+          {announcementData?.seller_name && (
+            <div className="mt-2 text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full inline-block">
+              Продавец: {announcementData.seller_name}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-3 self-start">
+          <Button
+            onClick={handleDelete}
+            variant="destructive"
+            className="w-full sm:w-auto"
+            disabled={isSaving || loading}
+          >
+            Удалить объявление
+          </Button>
+        </div>
       </div>
       
       <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-6">
@@ -182,14 +209,6 @@ export function EditAIDecisionScreen({ onBack, announcementId }: EditAIDecisionS
                   <p className="text-sm text-red-700 mt-1">Обнаружены повреждения упаковки</p>
                 </div>
               </div>
-              
-              <div className="flex items-start space-x-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200 hover:border-yellow-300 transition-colors">
-                <RadioGroupItem value="review" id="review" className="mt-1" />
-                <div>
-                  <Label htmlFor="review" className="font-medium text-yellow-800 cursor-pointer">🔍 Требует проверки</Label>
-                  <p className="text-sm text-yellow-700 mt-1">Сложный случай, требуется ручная проверка модератором</p>
-                </div>
-              </div>
             </RadioGroup>
           </div>
 
@@ -216,6 +235,14 @@ export function EditAIDecisionScreen({ onBack, announcementId }: EditAIDecisionS
               disabled={isSaving}
             >
               Отмена
+            </Button>
+            <Button
+              onClick={handleDelete}
+              variant="destructive"
+              className="w-full sm:w-auto"
+              disabled={isSaving || loading}
+            >
+              Удалить объявление
             </Button>
             <Button
               onClick={handleSave}

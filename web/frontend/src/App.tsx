@@ -26,78 +26,33 @@ export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [selectedAnnouncementId, setSelectedAnnouncementId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<'moderator' | 'admin'>('moderator');
-  const [userName, setUserName] = useState<string>('');
 
-  // Проверка сохранённой сессии при загрузке
-  useEffect(() => {
-    const token = localStorage.getItem('access_token');
-    const role = localStorage.getItem('user_role') as 'moderator' | 'admin' | null;
-    const name = localStorage.getItem('user_name') || '';
-    
-    if (token && role) {
-      // Проверяем, что токен ещё действителен (упрощённая проверка)
-      setIsLoggedIn(true);
-      setUserRole(role);
-      setUserName(name);
-      setCurrentScreen('announcements');
-    }
-  }, []);
-
-  const handleLogin = async (username: string, password: string) => {
+const handleLogin = async (username: string, password: string) => {
     try {
-      // 1. Авторизация и получение токена + данных пользователя
-      const authResponse = await api.login({ username, password });
-      
-      if (!authResponse.access_token) {
-        throw new Error('Сервер не вернул токен доступа');
-      }
+        const auth = await api.login({ username, password });
+        localStorage.setItem('access_token', auth.access_token);
+        localStorage.setItem('user_role', auth.user.role);
+        localStorage.setItem('user_name', auth.user.name);
 
-      // 2. Сохраняем токен и данные пользователя
-      localStorage.setItem('access_token', authResponse.access_token);
-      
-      // Если сервер вернул данные пользователя в ответе на /auth/login
-      if (authResponse.user) {
-        localStorage.setItem('user_role', authResponse.user.role);
-        localStorage.setItem('user_name', authResponse.user.name);
-        setUserRole(authResponse.user.role as 'moderator' | 'admin');
-        setUserName(authResponse.user.name);
-      } else {
-        // Иначе запрашиваем профиль отдельно
         const profile = await api.getProfile();
-        localStorage.setItem('user_role', profile.role);
-        localStorage.setItem('user_name', profile.name);
-        setUserRole(profile.role as 'moderator' | 'admin');
-        setUserName(profile.name);
-      }
-      
-      // 3. Устанавливаем состояние авторизации
-      setIsLoggedIn(true);
-      setCurrentScreen('announcements');
-      
+        
+        const role = profile.role === 'admin' ? 'admin' : 'moderator';
+        setUserRole(role as 'moderator' | 'admin');
+        
+        setIsLoggedIn(true);
+        setCurrentScreen('announcements');
     } catch (error) {
-      // Очищаем данные при ошибке
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('user_role');
-      localStorage.removeItem('user_name');
-      
-      alert('Ошибка входа: ' + (error as Error).message);
+        alert('Ошибка входа: ' + (error as Error).message);
     }
-  };
+};
 
   const handleLogout = () => {
-    // Очищаем данные сессии
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user_role');
-    localStorage.removeItem('user_name');
-    
     setIsLoggedIn(false);
     setCurrentScreen('login');
     setSelectedAnnouncementId(null);
     setUserRole('moderator');
-    setUserName('');
   };
 
-  // 🔒 Защита: если модератор как-то оказался на экране 'users' — перенаправляем
   useEffect(() => {
     if (isLoggedIn && userRole === 'moderator' && currentScreen === 'users') {
       setCurrentScreen('announcements');
@@ -188,16 +143,13 @@ export default function App() {
               </div>
             </div>
             <div className="flex items-center gap-4">
-              <div className="text-right">
-                <div className="text-sm font-medium text-gray-900">{userName}</div>
-                <span className={`px-2 py-1 rounded text-xs font-medium ${
-                  userRole === 'admin'
-                    ? 'bg-red-100 text-red-700'
-                    : 'bg-blue-100 text-blue-700'
-                }`}>
-                  {userRole === 'admin' ? 'Администратор' : 'Модератор'}
-                </span>
-              </div>
+              <span className={`px-2 py-1 rounded text-xs font-medium ${
+                userRole === 'admin'
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-blue-100 text-blue-700'
+              }`}>
+                {userRole === 'admin' ? 'Администратор' : 'Модератор'}
+              </span>
               <button
                 onClick={handleLogout}
                 className="px-4 py-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-md transition-colors"

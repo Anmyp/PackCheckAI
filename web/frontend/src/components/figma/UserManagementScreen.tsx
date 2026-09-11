@@ -22,8 +22,8 @@ export function UserManagementScreen() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [formError, setFormError] = useState('');
   
-  // Форма
   const [formData, setFormData] = useState({
     full_name: '',
     email: '',
@@ -49,14 +49,46 @@ export function UserManagementScreen() {
   };
 
   const handleCreateUser = async () => {
+    const trimmedName = formData.full_name.trim();
+    const trimmedEmail = formData.email.trim();
+    const trimmedLogin = formData.login.trim();
+    const trimmedPassword = formData.password.trim();
+
+    if (!trimmedName || !trimmedEmail) {
+      setFormError('Имя и email не могут быть пустыми');
+      return;
+    }
+
+    if (!trimmedLogin) {
+      setFormError('Логин не может быть пустым');
+      return;
+    }
+
+    if (!trimmedPassword) {
+      setFormError('Пароль не может быть пустым');
+      return;
+    }
+
+    if (users.some((user) => user.login.toLowerCase() === trimmedLogin.toLowerCase())) {
+      setFormError('Логин уже занят');
+      return;
+    }
+
     try {
-      await api.createUser(formData);
+      await api.createUser({
+        ...formData,
+        full_name: trimmedName,
+        email: trimmedEmail,
+        login: trimmedLogin,
+        password: trimmedPassword,
+      });
       setShowForm(false);
+      setFormError('');
       setFormData({ full_name: '', email: '', role: 'moderator', login: '', password: '' });
       loadUsers();
     } catch (error) {
       console.error('Ошибка создания пользователя:', error);
-      alert('Не удалось создать пользователя');
+      setFormError(error instanceof Error ? error.message : 'Не удалось создать пользователя');
     }
   };
 
@@ -100,12 +132,14 @@ export function UserManagementScreen() {
       login: '',
       password: ''
     });
+    setFormError('');
     setShowForm(true);
   };
 
   const cancelForm = () => {
     setShowForm(false);
     setEditingUser(null);
+    setFormError('');
     setFormData({ full_name: '', email: '', role: 'moderator', login: '', password: '' });
   };
 
@@ -114,7 +148,10 @@ export function UserManagementScreen() {
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold">Управление пользователями</h2>
         <Button 
-          onClick={() => setShowForm(true)}
+          onClick={() => {
+            setShowForm(true);
+            setFormError('');
+          }}
           className="bg-blue-600 hover:bg-blue-700 text-white"
         >
           <Plus className="h-4 w-4 mr-2" />
@@ -127,6 +164,11 @@ export function UserManagementScreen() {
           <h3 className="text-lg font-medium mb-4">
             {editingUser ? 'Редактирование пользователя' : 'Создание пользователя'}
           </h3>
+          {formError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">
+              {formError}
+            </div>
+          )}
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
@@ -134,7 +176,10 @@ export function UserManagementScreen() {
               <Input
                 id="full_name"
                 value={formData.full_name}
-                onChange={(e) => setFormData({...formData, full_name: e.target.value})}
+                onChange={(e) => {
+                  setFormError('');
+                  setFormData({...formData, full_name: e.target.value});
+                }}
                 placeholder="Введите полное имя"
                 className="mt-1"
               />
@@ -146,7 +191,10 @@ export function UserManagementScreen() {
                 id="email"
                 type="email"
                 value={formData.email}
-                onChange={(e) => setFormData({...formData, email: e.target.value})}
+                onChange={(e) => {
+                  setFormError('');
+                  setFormData({...formData, email: e.target.value});
+                }}
                 placeholder="Введите email"
                 className="mt-1"
               />
@@ -156,17 +204,24 @@ export function UserManagementScreen() {
               <Label htmlFor="role">Роль</Label>
               <Select 
                 value={formData.role} 
-                onValueChange={(value) => setFormData({...formData, role: value})}
+                onValueChange={(value) => {
+                  setFormError('');
+                  setFormData({...formData, role: value});
+                }}
               >
-                <SelectTrigger className="mt-1">
-                  <SelectValue />
+                <SelectTrigger className="mt-1 border-gray-300 focus:border-blue-500 focus:ring-blue-500">
+                  <SelectValue placeholder="Выберите роль" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent 
+                  position="popper"
+                  align="start"
+                  className="z-50 bg-white border border-gray-200 rounded-md shadow-lg"
+                >
                   <SelectItem value="moderator">Модератор</SelectItem>
                   <SelectItem value="admin">Администратор</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
+          </div>
             
             {!editingUser && (
               <>
@@ -175,7 +230,10 @@ export function UserManagementScreen() {
                   <Input
                     id="login"
                     value={formData.login}
-                    onChange={(e) => setFormData({...formData, login: e.target.value})}
+                    onChange={(e) => {
+                      setFormError('');
+                      setFormData({...formData, login: e.target.value});
+                    }}
                     placeholder="Введите логин"
                     className="mt-1"
                   />
@@ -187,7 +245,10 @@ export function UserManagementScreen() {
                     id="password"
                     type="password"
                     value={formData.password}
-                    onChange={(e) => setFormData({...formData, password: e.target.value})}
+                    onChange={(e) => {
+                      setFormError('');
+                      setFormData({...formData, password: e.target.value});
+                    }}
                     placeholder="Введите пароль"
                     className="mt-1"
                   />

@@ -3,7 +3,7 @@ from aiogram import Router, Bot
 from aiogram.types import Message, ContentType
 from aiogram.filters import Filter
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from ..config import settings
 from ..ai_service import ai_service
 from ..database import db
@@ -12,9 +12,9 @@ from ..utils.keyboards import get_main_menu, get_marketplace_menu
 router = Router()
 logger = logging.getLogger(__name__)
 
-# Временное хранилище для фото до выбора маркетплейса
-# Ключ: telegram_id, Значение: {filename, file_size, seller_id}
 TEMP_PHOTOS = {}
+
+PROCESSED_MEDIA_GROUPS = {}
 
 class IsPhoto(Filter):
     async def __call__(self, message: Message) -> bool:
@@ -23,14 +23,37 @@ class IsPhoto(Filter):
 @router.message(IsPhoto())
 async def handle_photo(message: Message, bot: Bot):
     logger.info(f"📸 Получено фото от пользователя {message.from_user.id}")
+
+    user_id = message.from_user.id
+    if message.media_group_id is not None:
+        media_group_key = (message.chat.id, message.media_group_id)
+        expire_before = datetime.now() - timedelta(minutes=5)
+        for key, timestamp in list(PROCESSED_MEDIA_GROUPS.items()):
+            if timestamp < expire_before:
+                PROCESSED_MEDIA_GROUPS.pop(key, None)
+
+        if media_group_key in PROCESSED_MEDIA_GROUPS:
+            return
+
+        PROCESSED_MEDIA_GROUPS[media_group_key] = datetime.now()
+        await message.answer(
+            "❌ Отправляйте только одно фото за раз. Альбомы не поддерживаются.",
+            reply_markup=get_main_menu()
+        )
+        return
+
+    if user_id in TEMP_PHOTOS:
+        await message.answer(
+            "❌ Вы уже отправили фото. Сначала выберите маркетплейс или отмените текущую операцию.",
+            reply_markup=get_marketplace_menu()
+        )
+        return
     
-    # Скачиваем фото
     photo = message.photo[-1]
     file = await bot.get_file(photo.file_id)
     photo_bytes = await bot.download_file(file.file_path)
     photo_bytes = photo_bytes.read() if hasattr(photo_bytes, 'read') else photo_bytes
     
-    # Сохраняем на диск (только имя файла)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{message.from_user.id}_{timestamp}.jpg"
     filepath = os.path.join(settings.PHOTOS_DIR, filename)
@@ -40,7 +63,6 @@ async def handle_photo(message: Message, bot: Bot):
     
     file_size = os.path.getsize(filepath)
     
-    # Получаем/создаём продавца
     user_check_query = "SELECT id FROM users WHERE telegram_id = $1 AND role_id = 1"
     user_row = await db.fetchrow(user_check_query, message.from_user.id)
     
@@ -60,7 +82,6 @@ async def handle_photo(message: Message, bot: Bot):
         seller_id = user_row["id"]
         logger.info(f"✅ Создан новый продавец: telegram_id={message.from_user.id}, seller_id={seller_id}")
     
-    # Сохраняем фото во временное хранилище (только имя файла!)
     TEMP_PHOTOS[message.from_user.id] = {
         "filename": filename,
         "file_size": file_size,
@@ -68,7 +89,6 @@ async def handle_photo(message: Message, bot: Bot):
         "timestamp": datetime.now()
     }
     
-    # Запрашиваем выбор маркетплейса
     await message.answer(
         "📦 <b>Выберите маркетплейс</b> для этой посылки:",
         reply_markup=get_marketplace_menu(),
@@ -94,7 +114,6 @@ async def handle_marketplace_selection(message: Message, bot: Bot):
         )
         return
     
-    # Получаем данные из временного хранилища
     temp_data = TEMP_PHOTOS.pop(user_id)
     filepath = os.path.join(settings.PHOTOS_DIR, temp_data["filename"])
     
@@ -105,7 +124,6 @@ async def handle_marketplace_selection(message: Message, bot: Bot):
         )
         return
     
-    # Сохраняем фото в БД (только имя файла без пути!)
     query = """
     INSERT INTO photos (file_path, seller_id, file_size, uploaded_at, marketplace, is_deleted)
     VALUES ($1, $2, $3, NOW(), $4, FALSE)
@@ -113,7 +131,7 @@ async def handle_marketplace_selection(message: Message, bot: Bot):
     """
     row = await db.fetchrow(
         query, 
-        temp_data["filename"],  # ← ТОЛЬКО ИМЯ ФАЙЛА, не полный путь!
+        temp_data["filename"],  
         temp_data["seller_id"], 
         temp_data["file_size"], 
         marketplace
@@ -122,7 +140,6 @@ async def handle_marketplace_selection(message: Message, bot: Bot):
     
     logger.info(f"✅ Фото сохранено: ID={photo_id}, маркетплейс={marketplace}, файл={temp_data['filename']}")
     
-    # Анализ ИИ
     await message.answer("🔍 Анализирую фото через ИИ...", reply_markup=get_main_menu())
     
     try:
@@ -131,13 +148,11 @@ async def handle_marketplace_selection(message: Message, bot: Bot):
         
         ai_result, confidence = await ai_service.analyze_photo(photo_bytes)
         
-        # Сохраняем результат ИИ
         await db.execute(
             "INSERT INTO ai_results (photo_id, ai_model_id, ai_result, ai_confidence) VALUES ($1, $2, $3, $4)",
             photo_id, 1, ai_result, confidence
         )
         
-        # Отправляем ответ
         if ai_result == "normal":
             status_emoji = "✅"
             status_text = "Нормально"
@@ -146,7 +161,7 @@ async def handle_marketplace_selection(message: Message, bot: Bot):
             status_emoji = "⚠️"
             status_text = "Повреждено"
             description = "Обнаружены признаки повреждений."
-        else:  # review
+        else:  
             status_emoji = "🔍"
             status_text = "Требует проверки"
             description = "Сложный случай — модератор проверит вручную."
@@ -166,9 +181,7 @@ async def handle_marketplace_selection(message: Message, bot: Bot):
             "❌ Ошибка при анализе фото. Попробуйте отправить другое изображение.",
             reply_markup=get_main_menu()
         )
-        # Удаляем запись из БД при ошибке
         await db.execute("DELETE FROM photos WHERE id = $1", photo_id)
-        # Удаляем файл
         if os.path.exists(filepath):
             os.remove(filepath)
 
@@ -180,7 +193,6 @@ async def handle_cancel(message: Message):
         temp_data = TEMP_PHOTOS.pop(user_id)
         filepath = os.path.join(settings.PHOTOS_DIR, temp_data["filename"])
         
-        # Удаляем временный файл
         if os.path.exists(filepath):
             os.remove(filepath)
             logger.info(f"🗑️ Временный файл удалён: {filepath}")

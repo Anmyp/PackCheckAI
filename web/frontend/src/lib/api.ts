@@ -1,10 +1,7 @@
-// src/lib/api.ts
 const API_BASE_URL = 'http://localhost:8000';
 
-// Обновлённый тип статуса
-type AnnouncementStatus = 'normal' | 'damaged' | 'review';
+type AnnouncementStatus = 'normal' | 'damaged';
 
-// Вспомогательная функция для получения заголовков с токеном
 const getHeaders = () => {
   const token = localStorage.getItem('access_token');
   const headers: Record<string, string> = {
@@ -18,20 +15,17 @@ const getHeaders = () => {
   return headers;
 };
 
-// Обработка ошибок 401 (неавторизован)
 const handleUnauthorized = () => {
   localStorage.removeItem('access_token');
   localStorage.removeItem('user_role');
   localStorage.removeItem('user_name');
   
-  // Перенаправляем на логин, если не на странице логина
   if (window.location.pathname !== '/') {
     window.location.href = '/';
   }
 };
 
 export const api = {
-  // Аутентификация (не требует токена)
   login: async (credentials: { username: string; password: string }) => {
     const response = await fetch(`${API_BASE_URL}/auth/login`, {
       method: 'POST',
@@ -49,7 +43,6 @@ export const api = {
     return await response.json();
   },
 
-  // Профиль (требует авторизации)
   getProfile: async () => {
     const response = await fetch(`${API_BASE_URL}/profile`, {
       headers: getHeaders(),
@@ -64,7 +57,6 @@ export const api = {
     return await response.json();
   },
 
-  // Управление пользователями (только админ, требует авторизации)
   getUsers: async () => {
     const response = await fetch(`${API_BASE_URL}/users`, {
       headers: getHeaders(),
@@ -99,7 +91,12 @@ export const api = {
       throw new Error('У вас нет прав для создания пользователей');
     }
     
-    if (!response.ok) throw new Error('Ошибка создания пользователя');
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => null);
+      const detail = errorBody?.detail || errorBody?.message || 'Ошибка создания пользователя';
+      const message = typeof detail === 'string' ? detail : JSON.stringify(detail);
+      throw new Error(message);
+    }
     return await response.json();
   },
 
@@ -142,7 +139,6 @@ export const api = {
     return await response.json();
   },
 
-  // Объявления (требует авторизации)
   getAnnouncements: async () => {
     const response = await fetch(`${API_BASE_URL}/announcements/`, {
       headers: getHeaders(),
@@ -156,7 +152,7 @@ export const api = {
     if (!response.ok) throw new Error('Ошибка загрузки объявлений');
     return await response.json();
   },
-  // Добавьте этот метод в объект `api` после `getAnnouncements`
+
 getAnnouncement: async (announcementId: string) => {
   const response = await fetch(`${API_BASE_URL}/announcements/${announcementId}`, {
     headers: getHeaders(),
@@ -171,7 +167,6 @@ getAnnouncement: async (announcementId: string) => {
   return await response.json();
 },
 
-  // Обновление статуса объявления (требует авторизации)
   updateAnnouncementStatus: async (id: string, status: AnnouncementStatus, comment?: string) => {
     const response = await fetch(`${API_BASE_URL}/announcements/${id}/status`, {
       method: 'PATCH',
@@ -188,7 +183,21 @@ getAnnouncement: async (announcementId: string) => {
     return await response.json();
   },
 
-  // Комментарии (требуют авторизации)
+  deleteAnnouncement: async (id: string) => {
+    const response = await fetch(`${API_BASE_URL}/announcements/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    });
+
+    if (response.status === 401) {
+      handleUnauthorized();
+      throw new Error('Сессия истекла. Пожалуйста, войдите снова.');
+    }
+
+    if (!response.ok) throw new Error('Ошибка удаления объявления');
+    return await response.json();
+  },
+
   getComments: async (announcementId: string) => {
     const response = await fetch(`${API_BASE_URL}/announcements/${announcementId}/comments`, {
       headers: getHeaders(),
@@ -219,7 +228,6 @@ getAnnouncement: async (announcementId: string) => {
     return await response.json();
   },
 
-  // Статистика (требует авторизации)
   getStatistics: async () => {
     const response = await fetch(`${API_BASE_URL}/statistics/`, {
       headers: getHeaders(),
@@ -234,7 +242,6 @@ getAnnouncement: async (announcementId: string) => {
     return await response.json();
   },
 
-  // Добавьте этот метод в объект `api` после `getProfile`
 updateProfile: async (userData: { name: string; email: string }) => {
   const response = await fetch(`${API_BASE_URL}/profile`, {
     method: 'PATCH',
@@ -251,7 +258,6 @@ updateProfile: async (userData: { name: string; email: string }) => {
   return await response.json();
 },
 
-  // Отчёты (требуют авторизации)
   generateReport: async (params: { dateFrom: string; dateTo: string; marketplace?: string }) => {
     const query = new URLSearchParams();
     query.append('date_from', params.dateFrom);

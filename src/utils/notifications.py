@@ -1,4 +1,3 @@
-# src/utils/notifications.py
 from aiogram import Bot
 from ..config import settings
 

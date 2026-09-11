@@ -7,7 +7,6 @@ import { Eye, Printer, Download, Calendar } from 'lucide-react';
 import { api } from '../../lib/api';
 
 export function PrintReportScreen() {
-  // Минимальная и максимальная допустимые даты
   const MIN_DATE = '2020-01-01';
   const MAX_DATE = new Date().toISOString().split('T')[0];
 
@@ -34,7 +33,6 @@ export function PrintReportScreen() {
     marketplace: ''
   });
 
-  // Парсинг CSV с разделителем ";"
   const parseCSV = (csvText: string): string[][] => {
     if (!csvText.trim()) return [];
     
@@ -83,7 +81,6 @@ export function PrintReportScreen() {
       const text = await blob.text();
       setPreviewData(parseCSV(text));
       
-      // Сохраняем применённые фильтры для печати/экспорта
       setAppliedFilters({
         dateFrom,
         dateTo,

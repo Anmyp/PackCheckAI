@@ -5,7 +5,7 @@ import { Label } from '../ui/label';
 import { api } from '../../lib/api';
 
 interface LoginScreenProps {
-  onLogin: (username: string, password: string) => Promise<void>; // ← обновленный тип
+  onLogin: (username: string, password: string) => Promise<void>;
 }
 
 export function LoginScreen({ onLogin }: LoginScreenProps) {
@@ -26,8 +26,7 @@ const handleSubmit = async (e: React.FormEvent) => {
   setError(null);
   
   try {
-    // ДОЛЖНО БЫТЬ ТАК:
-    await onLogin(login, password); // ← передаём логин и пароль
+    await onLogin(login, password); 
   } catch (error) {
     console.error('Ошибка входа:', error);
     setError('Неверный логин или пароль');

@@ -1,7 +1,6 @@
 import sys
 import os
 
-# Добавляем корень проекта в sys.path ДО любых импортов из src
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
@@ -12,7 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
 from database import db
 import logging
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, validator
+from web.backend.notifications import build_status_notification_text
 import bcrypt
 from fastapi.responses import StreamingResponse
 import io
@@ -21,14 +21,14 @@ from aiogram import Bot
 from src.config import settings
 import secrets
 import time
+import secrets
+from fastapi import Header
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Простая "память" для сессий (в продакшене использовать Redis)
 SESSIONS = {}
 
-# Путь к фото — ТОЛЬКО через os.path (без Path!)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PHOTOS_DIR = os.path.join(BASE_DIR, "photos")
 os.makedirs(PHOTOS_DIR, exist_ok=True)
@@ -62,28 +62,45 @@ class CommentRequest(BaseModel):
     text: str
 
 class ProfileUpdateRequest(BaseModel):
-    name: str
-    email: str
+    name: str = Field(..., min_length=1)
+    email: str = Field(..., min_length=1)
+
+    @validator('name', 'email', pre=True)
+    def strip_and_validate_not_empty(cls, value: str):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError('must not be empty')
+        return value.strip()
 
 class CreateUserRequest(BaseModel):
-    full_name: str
-    email: str
+    full_name: str = Field(..., min_length=1)
+    email: str = Field(..., min_length=1)
     role: str
-    login: str
-    password: str
+    login: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+
+    @validator('full_name', 'email', 'login', 'password', pre=True)
+    def strip_and_validate_not_empty(cls, value: str):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError('must not be empty')
+        return value.strip()
 
 class UpdateUserRequest(BaseModel):
-    full_name: str
-    email: str
+    full_name: str = Field(..., min_length=1)
+    email: str = Field(..., min_length=1)
     role: str
     is_active: bool
 
-# Вспомогательная функция для получения пользователя из сессии
+    @validator('full_name', 'email', pre=True)
+    def strip_and_validate_not_empty(cls, value: str):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError('must not be empty')
+        return value.strip()
+
 def get_user_from_session(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
     
-    session_id = authorization[7:]  # Убираем "Bearer "
+    session_id = authorization[7:]  
     user_id = SESSIONS.get(session_id)
     
     if not user_id:
@@ -91,7 +108,7 @@ def get_user_from_session(authorization: str = Header(None)):
     
     return user_id
 
-# ========== АУТЕНТИФИКАЦИЯ ==========
+# АУТЕНТИФИКАЦИЯ
 @app.post("/auth/login")
 async def login(request: LoginRequest):
     try:
@@ -111,11 +128,9 @@ async def login(request: LoginRequest):
             request.password.encode('utf-8'), 
             user["password_hash"].encode('utf-8')
         ):
-            # Генерируем уникальный session_id
             session_id = secrets.token_hex(32)
             SESSIONS[session_id] = user["id"]
             
-            # Определяем роль
             role = "admin" if user["role_id"] == 3 else "moderator"
             
             return {
@@ -144,11 +159,10 @@ async def logout(authorization: str = Header(None)):
         SESSIONS.pop(session_id, None)
     return {"message": "Logged out successfully"}
 
-# ========== ОБЪЯВЛЕНИЯ ==========
+# ОБЪЯВЛЕНИЯ
 @app.get("/announcements/")
 async def get_announcements(authorization: str = Header(None)):
     try:
-        # Для демо разрешаем доступ без авторизации (в продакшене убрать)
         user_id = None
         if authorization and authorization.startswith("Bearer "):
             session_id = authorization[7:]
@@ -249,7 +263,6 @@ async def update_announcement_status(
     try:
         user_id = get_user_from_session(authorization)
         
-        # Получаем фото и продавца с telegram_id
         photo_query = """
             SELECT p.id, p.seller_id, u.telegram_id
             FROM photos p
@@ -262,10 +275,11 @@ async def update_announcement_status(
         
         telegram_id = photo_row["telegram_id"]
 
-        # Удаляем старую коррекцию
         await db.execute("DELETE FROM corrections WHERE photo_id = $1", announcement_id)
 
-        # Сохраняем новую коррекцию (только normal/damaged)
+        if request and request.status not in ("normal", "damaged"):
+            raise HTTPException(status_code=400, detail="Invalid status. Only 'normal' or 'damaged' allowed.")
+
         insert_query = """
             INSERT INTO corrections (photo_id, moderator_id, final_result, comment)
             VALUES ($1, $2, $3, $4)
@@ -273,20 +287,15 @@ async def update_announcement_status(
         await db.execute(
             insert_query,
             announcement_id,
-            user_id,  # ← Используем реальный ID модератора из сессии
+            user_id,  
             request.status if request else "damaged",
             request.comment if request else ""
         )
 
-        # ✅ ОТПРАВКА УВЕДОМЛЕНИЯ ПРОДАВЦУ ЧЕРЕЗ TELEGRAM
         if request and request.status in ("normal", "damaged") and telegram_id:
             bot = Bot(token=settings.BOT_TOKEN)
             try:
-                text = (
-                    "✅ Ваша посылка проверена модератором: состояние — нормальное."
-                    if request.status == "normal"
-                    else "⚠️ Ваша посылка проверена модератором: обнаружены повреждения."
-                )
+                text = build_status_notification_text(request.status, request.comment)
                 await bot.send_message(chat_id=telegram_id, text=text)
                 logger.info(f"✅ Уведомление отправлено продавцу {telegram_id} (фото {announcement_id})")
             except Exception as e:
@@ -302,7 +311,31 @@ async def update_announcement_status(
         logger.error(f"Error updating announcement {announcement_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-# ========== КОММЕНТАРИИ ==========
+@app.delete("/announcements/{announcement_id}")
+async def delete_announcement(
+    announcement_id: int = FastAPIPath(..., gt=0),
+    authorization: str = Header(None)
+):
+    try:
+        user_id = get_user_from_session(authorization)
+
+        check_query = "SELECT id FROM photos WHERE id = $1 AND is_deleted = FALSE"
+        photo = await db.fetchrow(check_query, announcement_id)
+        if not photo:
+            raise HTTPException(status_code=404, detail="Announcement not found")
+
+        await db.execute("DELETE FROM corrections WHERE photo_id = $1", announcement_id)
+        await db.execute("DELETE FROM comments WHERE photo_id = $1", announcement_id)
+        await db.execute("UPDATE photos SET is_deleted = TRUE WHERE id = $1", announcement_id)
+
+        return {"message": "Announcement deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting announcement {announcement_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# КОММЕНТАРИИ
 @app.get("/announcements/{announcement_id}/comments")
 async def get_comments(
     announcement_id: int = FastAPIPath(..., gt=0),
@@ -360,7 +393,7 @@ async def add_comment(
         await db.execute(
             insert_query, 
             announcement_id, 
-            user_id,  # ← Используем реальный ID модератора из сессии
+            user_id,  
             request.text if request else ""
         )
         return {"message": "Comment added successfully"}
@@ -371,7 +404,7 @@ async def add_comment(
         logger.error(f"Error adding comment to announcement {announcement_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-# ========== СТАТИСТИКА ==========
+# СТАТИСТИКА
 @app.get("/statistics/")
 async def get_statistics(authorization: str = Header(None)):
     try:
@@ -444,7 +477,7 @@ async def get_statistics(authorization: str = Header(None)):
             ]
         }
 
-# ========== ПРОФИЛЬ ==========
+# ПРОФИЛЬ
 @app.get("/profile")
 async def get_profile(authorization: str = Header(None)):
     try:
@@ -509,13 +542,12 @@ async def update_profile(
         logger.error(f"Error updating profile: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-# ========== УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ (ТОЛЬКО АДМИН) ==========
+# УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ (ТОЛЬКО АДМИН)
 @app.get("/users")
 async def get_users(authorization: str = Header(None)):
     try:
         user_id = get_user_from_session(authorization)
         
-        # Проверяем, что пользователь — админ
         role_query = "SELECT role_id FROM users WHERE id = $1"
         user_role = await db.fetchrow(role_query, user_id)
         if not user_role or user_role["role_id"] != 3:
@@ -563,7 +595,6 @@ async def create_user(
     try:
         user_id = get_user_from_session(authorization)
         
-        # Проверяем, что пользователь — админ
         role_query = "SELECT role_id FROM users WHERE id = $1"
         user_role = await db.fetchrow(role_query, user_id)
         if not user_role or user_role["role_id"] != 3:
@@ -577,12 +608,12 @@ async def create_user(
         check_login = "SELECT id FROM users WHERE login = $1"
         existing_login = await db.fetchrow(check_login, request.login)
         if existing_login:
-            raise HTTPException(status_code=400, detail="Login already exists")
+            raise HTTPException(status_code=400, detail="Логин уже занят")
         
         check_email = "SELECT id FROM users WHERE email = $1"
         existing_email = await db.fetchrow(check_email, request.email)
         if existing_email:
-            raise HTTPException(status_code=400, detail="Email already exists")
+            raise HTTPException(status_code=400, detail="Email уже занят")
         
         password_hash = bcrypt.hashpw(
             request.password.encode('utf-8'),
@@ -623,7 +654,6 @@ async def update_user(
     try:
         current_user_id = get_user_from_session(authorization)
         
-        # Проверяем, что пользователь — админ
         role_query = "SELECT role_id FROM users WHERE id = $1"
         user_role = await db.fetchrow(role_query, current_user_id)
         if not user_role or user_role["role_id"] != 3:
@@ -674,27 +704,21 @@ async def delete_user(
     authorization: str = Header(None)
 ):
     try:
-        # Получаем текущего пользователя из сессии
         current_user_id = get_user_from_session(authorization)
         
-        # Проверяем, что текущий пользователь — админ
         role_query = "SELECT role_id FROM users WHERE id = $1"
         user_role = await db.fetchrow(role_query, current_user_id)
         if not user_role or user_role["role_id"] != 3:
             raise HTTPException(status_code=403, detail="Access denied: admin only")
         
-        # 🔒 Защита: нельзя удалить самого себя
         if current_user_id == user_id:
             raise HTTPException(status_code=400, detail="Нельзя удалить самого себя")
         
-        # Проверяем существование и роль удаляемого пользователя
         target_user = await db.fetchrow("SELECT role_id FROM users WHERE id = $1", user_id)
         if not target_user:
             raise HTTPException(status_code=404, detail="User not found")
         
-        # 🔒 Защита: нельзя удалить последнего админа
-        if target_user["role_id"] == 3:  # целевой пользователь — админ
-            # Считаем админов, исключая удаляемого
+        if target_user["role_id"] == 3: 
             admin_count_row = await db.fetchrow(
                 "SELECT COUNT(*) as count FROM users WHERE role_id = 3 AND id != $1", 
                 user_id
@@ -703,18 +727,13 @@ async def delete_user(
             if admin_count == 0:
                 raise HTTPException(status_code=400, detail="Нельзя удалить последнего администратора системы")
         
-        # Проверяем, что удаляем модератора/админа (не продавца)
         if target_user["role_id"] not in (2, 3):
             raise HTTPException(status_code=400, detail="Можно удалять только модераторов и администраторов")
         
-        # 🔑 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: сначала удаляем связанные записи
-        # 1. Удаляем все коррекции (решения модератора)
         await db.execute("DELETE FROM corrections WHERE moderator_id = $1", user_id)
         
-        # 2. Удаляем все комментарии пользователя
         await db.execute("DELETE FROM comments WHERE author_id = $1", user_id)
         
-        # 3. Теперь безопасно удаляем пользователя
         await db.execute("DELETE FROM users WHERE id = $1", user_id)
         
         logger.info(f"✅ Пользователь {user_id} успешно удалён (все связанные записи очищены)")
@@ -726,7 +745,7 @@ async def delete_user(
         logger.error(f"Error deleting user {user_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to delete user")
 
-# ========== ОТЧЁТЫ ==========
+# ОТЧЁТЫ
 @app.get("/reports/generate")
 async def generate_report(
     date_from: str,
@@ -737,12 +756,10 @@ async def generate_report(
     try:
         user_id = get_user_from_session(authorization)
         
-        # Валидация и преобразование строк в объекты date
         from datetime import date
         date_from_obj = date.fromisoformat(date_from)
         date_to_obj = date.fromisoformat(date_to)
         
-        # Базовый запрос
         query_parts = [
             "SELECT",
             "    p.id,",
@@ -760,7 +777,6 @@ async def generate_report(
         params = [date_from_obj, date_to_obj]
         param_count = 3
         
-        # Фильтр по маркетплейсу
         if marketplace != "all":
             query_parts.append(f"  AND p.marketplace = ${param_count}")
             params.append(marketplace)
@@ -769,12 +785,10 @@ async def generate_report(
         query = "\n".join(query_parts)
         rows = await db.fetch(query, *params)
         
-        # === ГЕНЕРАЦИЯ CSV С ПРАВИЛЬНОЙ КОДИРОВКОЙ ===
+        # ГЕНЕРАЦИЯ CSV С ПРАВИЛЬНОЙ КОДИРОВКОЙ
         output = io.StringIO()
-        # Заголовки в кавычках (для безопасности разделителей)
         output.write('"ID";"Дата";"Статус";"Маркетплейс"\n')
         for row in rows:
-            # Экранируем кавычки в данных
             status = str(row['status']).replace('"', '""')
             marketplace_val = str(row['marketplace']).replace('"', '""')
             output.write(
@@ -787,7 +801,6 @@ async def generate_report(
         output.seek(0)
         csv_content = output.getvalue()
         
-        # Кодируем в UTF-8 с BOM (Byte Order Mark) для корректного открытия в Excel
         bom = '\ufeff'.encode('utf-8')
         csv_bytes = csv_content.encode('utf-8')
         
@@ -809,7 +822,7 @@ async def generate_report(
         logger.error(f"Report generation error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to generate report")
 
-# ========== ЗДОРОВЬЕ ==========
+# ЗДОРОВЬЕ
 @app.get("/")
 async def root():
     return {"message": "PackCheck API", "version": "1.0.0"}

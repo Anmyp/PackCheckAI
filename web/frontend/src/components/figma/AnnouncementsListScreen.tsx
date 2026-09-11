@@ -9,7 +9,7 @@ interface Announcement {
   id: string;
   photo_url: string;
   date: string;
-  status: 'normal' | 'damaged' | 'review'; // ← добавлен 'review'
+  status: 'normal' | 'damaged' | 'review';
   comments_count: number;
 }
 
@@ -53,7 +53,7 @@ export function AnnouncementsListScreen({ onEditDecision, onViewComments }: Anno
   const getStatusDisplay = (status: string) => {
     if (status === 'damaged') return 'Повреждено';
     if (status === 'normal') return 'Норма';
-    if (status === 'review') return 'Требует проверки'; // ← новое
+    if (status === 'review') return 'Требует проверки';
     return 'Неизвестно';
   };
 
@@ -129,7 +129,7 @@ export function AnnouncementsListScreen({ onEditDecision, onViewComments }: Anno
                         item.status === 'damaged'
                           ? 'bg-red-100 text-red-700'
                           : item.status === 'review'
-                          ? 'bg-yellow-100 text-yellow-700' // ← жёлтый для review
+                          ? 'bg-yellow-100 text-yellow-700' 
                           : 'bg-green-100 text-green-700'
                       }`}
                     >

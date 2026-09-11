@@ -20,7 +20,6 @@ interface StatisticsData {
 }
 
 export function StatisticsScreen() {
-  // Минимальная допустимая дата (1 января 2020)
   const MIN_DATE = '2020-01-01';
   const MAX_DATE = new Date().toISOString().split('T')[0];
 
@@ -44,7 +43,7 @@ export function StatisticsScreen() {
   const [appliedDateTo, setAppliedDateTo] = useState(dateTo);
 
   const loadStatistics = async (from: string, to: string) => {
-    // Валидация дат перед загрузкой
+  
     if (new Date(from) > new Date(to)) {
       setError('Дата "с" не может быть позже даты "по"');
       return;
@@ -72,12 +71,10 @@ export function StatisticsScreen() {
       const text = await blob.text();
       const rows = text.trim().split('\n');
       
-      // Пропускаем заголовок
       if (rows.length <= 1) {
         throw new Error('Нет данных за выбранный период');
       }
       
-      // Подсчитываем статистику из данных
       let normal = 0, damaged = 0, review = 0;
       const chartData: { [key: string]: { normal: number, damaged: number, review: number } } = {};
       
@@ -89,9 +86,8 @@ export function StatisticsScreen() {
         if (cells.length < 3) continue;
         
         const status = cells[2].toLowerCase().trim();
-        const dateStr = cells[1].split(' ')[0]; // Берём только дату без времени
+        const dateStr = cells[1].split(' ')[0]; 
         
-        // Преобразуем дату в день недели
         const date = new Date(dateStr);
         if (isNaN(date.getTime())) continue;
         
@@ -132,7 +128,6 @@ export function StatisticsScreen() {
         }))
       });
       
-      // Сохраняем применённые даты
       setAppliedDateFrom(from);
       setAppliedDateTo(to);
       
@@ -140,7 +135,6 @@ export function StatisticsScreen() {
       console.error('Ошибка загрузки статистики:', err);
       setError('Не удалось загрузить статистику за выбранный период. Проверьте даты.');
       
-      // Демо-данные только для отладки
       setStats({
         total: 1247,
         normal_percent: 73.5,
@@ -161,7 +155,6 @@ export function StatisticsScreen() {
     }
   };
 
-  // Загрузка при первом монтировании (последние 7 дней)
   useEffect(() => {
     loadStatistics(dateFrom, dateTo);
   }, []);

@@ -6,22 +6,12 @@ from typing import Tuple
 from io import BytesIO
 from .config import settings
 import httpx
-from io import BytesIO
 from PIL import Image
-
-# Импортируем PIL только при необходимости
-try:
-    from PIL import Image
-except ImportError:
-    raise RuntimeError("Установите Pillow: pip install Pillow")
 
 logger = logging.getLogger(__name__)
 
 def resize_image(image_bytes: bytes, max_size: int = 1024) -> bytes:
-    """
-    Сжимает изображение так, чтобы его большая сторона была <= max_size пикселей.
-    Конвертирует в RGB + JPEG для уменьшения объёма.
-    """
+  
     img = Image.open(BytesIO(image_bytes))
 
     if img.mode in ("RGBA", "P"):
@@ -36,18 +26,25 @@ def resize_image(image_bytes: bytes, max_size: int = 1024) -> bytes:
 
     img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
 
-    buffer = BytesIO()  # ← ПРАВИЛЬНО: BytesIO(), а не Bytes IO()
+    buffer = BytesIO()
     img.save(buffer, format="JPEG", quality=85, optimize=True)
     return buffer.getvalue()
 
 
 class AIService:
+    #МЕНЯЙ ТОЛЬКО ЭТО ЗНАЧЕНИЕ: True = прокси, False = напрямую/VPN
+    USE_PROXY = True 
+    
     def __init__(self):
         self.api_key = settings.OPENAI_API_KEY.strip()
         self.model = settings.OPENAI_MODEL.strip() or "gpt-4o"
         self.base_url = "https://api.openai.com/v1/chat/completions"
+        
+        raw_proxy = "socks5://yyRZkMcA:zQ8WMyL4@172.120.189.135:63893"
+        self.proxy_url = raw_proxy if self.USE_PROXY else None
 
-        logger.info(f"OpenAI config: model={self.model}")
+        status = "ВКЛЮЧЕН" if self.proxy_url else "ОТКЛЮЧЕН (VPN/напрямую)"
+        logger.info(f"OpenAI config: model={self.model}, proxy={status}")
 
         if not self.api_key.startswith("sk-"):
             logger.warning("OpenAI API ключ не начинается с 'sk-' — возможно, невалидный")
@@ -55,7 +52,6 @@ class AIService:
     async def analyze_photo(self, photo_bytes: bytes) -> Tuple[str, float]:
         logger.info(f"🤖 Запрос к OpenAI ({len(photo_bytes):,} байт)")
 
-        # === СЖАТИЕ ИЗОБРАЖЕНИЯ ===
         try:
             compressed_bytes = await asyncio.get_running_loop().run_in_executor(
                 None, resize_image, photo_bytes, 1024
@@ -65,7 +61,6 @@ class AIService:
             logger.warning(f"Не удалось сжать изображение: {e}. Используем оригинал.")
             compressed_bytes = photo_bytes
 
-        # Кодируем в base64
         b64_image = base64.b64encode(compressed_bytes).decode("utf-8")
         image_url = f"data:image/jpeg;base64,{b64_image}"
 
@@ -117,7 +112,11 @@ class AIService:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(
+                timeout=30.0, 
+                proxy=self.proxy_url,
+                verify=False
+            ) as client:
                 response = await client.post(self.base_url, headers=headers, json=payload)
 
             if response.status_code != 200:
